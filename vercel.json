@@ -1,0 +1,19 @@
+# Vercel Deployment Configuration
+# Place this file at the root of your project
+
+# Build settings
+[build.environment]
+  NODE_VERSION = "18"
+
+# Output directory
+[build]
+  publish = "dist"
+
+# Build command
+  command = "npm run build"
+
+# Redirects (for SPA routing)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
