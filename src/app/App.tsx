@@ -1,13 +1,11 @@
 import { useState, useEffect, useMemo } from "react";
 import { Job, Filters, SortOption } from "../types/job";
 import {
-  fetchJobs,
   fetchPaginatedJobs,
   fetchInfiniteScrollJobs,
 } from "../services/jobsApi";
 import { mockJobs } from "../data/mockJobs";
-import { APP_CONFIG, isLiveAPI } from "../config/app.config";
-import { useDebounce } from "../hooks/useDebounce";
+import { isLiveAPI } from "../config/app.config";
 import {
   filterJobs,
   sortJobs,
@@ -34,9 +32,19 @@ const ITEMS_PER_PAGE = 12;
 
 type ViewMode = "grid" | "list";
 
+/** Normalize API job data to match the Job interface */
+const normalizeJob = (job: any): Job => ({
+  ...job,
+  openings: job.number_of_opening ?? job.openings,
+  qualifications: Array.isArray(job.qualifications)
+    ? JSON.stringify(job.qualifications)
+    : job.qualifications,
+});
+
 function App() {
   const [allJobs, setAllJobs] = useState<Job[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [searchInput, setSearchInput] = useState("");
@@ -58,38 +66,102 @@ function App() {
   const [currentPage, setCurrentPage] = useState(1);
   const [infiniteScrollPage, setInfiniteScrollPage] = useState(1);
 
-  // Load jobs on mount
-  const loadJobs = async () => {
+  // Server-side pagination metadata
+  const [serverTotalPages, setServerTotalPages] = useState(0);
+  const [serverTotal, setServerTotal] = useState(0);
+  const [hasMoreFromServer, setHasMoreFromServer] = useState(true);
+
+  // --- Data loading functions ---
+
+  /** Fetch a single page from the paginated API */
+  const loadPaginatedPage = async (page: number) => {
     try {
       setIsLoading(true);
       setError(null);
-
-      if (isLiveAPI()) {
-        // Fetch jobs from JSONFakery API
-        const jobs = await fetchJobs();
-        setAllJobs(jobs);
-      } else {
-        // Use mock data for development/testing
-        await new Promise((resolve) => setTimeout(resolve, 800));
-        setAllJobs(mockJobs);
-      }
+      const response = await fetchPaginatedJobs(page);
+      setAllJobs(response.data.map(normalizeJob));
+      setServerTotalPages(response.last_page);
+      setServerTotal(response.total);
     } catch (err) {
-      const errorMessage =
+      setError(
         err instanceof Error
           ? err.message
-          : "Failed to load jobs. Please try again later.";
-      setError(errorMessage);
+          : "Failed to load jobs. Please try again later.",
+      );
       console.error(err);
     } finally {
       setIsLoading(false);
     }
   };
 
+  /** Fetch the first page for infinite scroll mode */
+  const loadInfiniteInitial = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const response = await fetchInfiniteScrollJobs(1);
+      setAllJobs(response.data.map(normalizeJob));
+      setHasMoreFromServer(!!response.next_page_url);
+      setInfiniteScrollPage(1);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to load jobs. Please try again later.",
+      );
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  /** Append the next page for infinite scroll */
+  const loadMoreInfinite = async () => {
+    if (isLoadingMore || !hasMoreFromServer) return;
+    try {
+      setIsLoadingMore(true);
+      const nextPage = infiniteScrollPage + 1;
+      const response = await fetchInfiniteScrollJobs(nextPage);
+      const newJobs = response.data.map(normalizeJob);
+      setAllJobs((prev) => [...prev, ...newJobs]);
+      setHasMoreFromServer(!!response.next_page_url);
+      setInfiniteScrollPage(nextPage);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
+
+  /** Load mock data for development/testing */
+  const loadMockJobs = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      setAllJobs(mockJobs);
+    } catch (err) {
+      setError("Failed to load jobs. Please try again later.");
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // --- Initial load ---
   useEffect(() => {
-    loadJobs();
+    if (!isLiveAPI()) {
+      loadMockJobs();
+      return;
+    }
+    if (isPaginationMode) {
+      loadPaginatedPage(1);
+    } else {
+      loadInfiniteInitial();
+    }
   }, []);
 
-  // Get unique values for filters
+  // --- Derived filter options ---
   const locations = useMemo(() => getUniqueLocations(allJobs), [allJobs]);
   const categories = useMemo(() => getUniqueCategories(allJobs), [allJobs]);
   const employmentTypes = useMemo(
@@ -109,32 +181,91 @@ function App() {
     }
   }, [allJobs, salaryRange]);
 
-  // Apply filters and sorting
+  // --- Client-side filtering & sorting on loaded data ---
   const filteredAndSortedJobs = useMemo(() => {
     const filtered = filterJobs(allJobs, filters);
     return sortJobs(filtered, sortOption);
   }, [allJobs, filters, sortOption]);
 
-  // Pagination
-  const totalPages = Math.ceil(filteredAndSortedJobs.length / ITEMS_PER_PAGE);
-  const paginatedJobs = useMemo(() => {
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    const end = start + ITEMS_PER_PAGE;
-    return filteredAndSortedJobs.slice(start, end);
-  }, [filteredAndSortedJobs, currentPage]);
-
-  // Infinite scroll
-  const infiniteScrollJobs = useMemo(() => {
+  // --- Display logic ---
+  const displayedJobs = useMemo(() => {
+    if (isPaginationMode) {
+      if (isLiveAPI()) {
+        // Server already paginated — show all loaded (filtered) data
+        return filteredAndSortedJobs;
+      }
+      // Client-side pagination for mock data
+      const start = (currentPage - 1) * ITEMS_PER_PAGE;
+      return filteredAndSortedJobs.slice(start, start + ITEMS_PER_PAGE);
+    }
+    // Infinite scroll
+    if (isLiveAPI()) {
+      // Server provides data incrementally — show all accumulated (filtered) data
+      return filteredAndSortedJobs;
+    }
+    // Client-side infinite scroll for mock data
     return filteredAndSortedJobs.slice(0, infiniteScrollPage * ITEMS_PER_PAGE);
-  }, [filteredAndSortedJobs, infiniteScrollPage]);
+  }, [filteredAndSortedJobs, currentPage, infiniteScrollPage, isPaginationMode]);
 
-  const displayedJobs = isPaginationMode ? paginatedJobs : infiniteScrollJobs;
+  const totalPages = useMemo(() => {
+    if (isLiveAPI() && isPaginationMode) {
+      return serverTotalPages;
+    }
+    return Math.ceil(filteredAndSortedJobs.length / ITEMS_PER_PAGE);
+  }, [filteredAndSortedJobs, serverTotalPages, isPaginationMode]);
 
-  // Reset pagination when filters change
+  const hasMoreInfiniteScroll = isLiveAPI()
+    ? hasMoreFromServer
+    : filteredAndSortedJobs.slice(0, infiniteScrollPage * ITEMS_PER_PAGE)
+        .length < filteredAndSortedJobs.length;
+
+  // --- Event handlers ---
+
+  // Reset pagination when filters/sort change
   useEffect(() => {
     setCurrentPage(1);
     setInfiniteScrollPage(1);
   }, [filters, sortOption]);
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+    if (isLiveAPI()) {
+      loadPaginatedPage(page);
+    }
+  };
+
+  const handlePaginationModeChange = (newIsPagination: boolean) => {
+    setIsPaginationMode(newIsPagination);
+    setCurrentPage(1);
+    setInfiniteScrollPage(1);
+    if (isLiveAPI()) {
+      if (newIsPagination) {
+        loadPaginatedPage(1);
+      } else {
+        loadInfiniteInitial();
+      }
+    }
+  };
+
+  const handleLoadMore = () => {
+    if (isLiveAPI()) {
+      loadMoreInfinite();
+    } else {
+      setInfiniteScrollPage((prev) => prev + 1);
+    }
+  };
+
+  const handleRetry = () => {
+    if (!isLiveAPI()) {
+      loadMockJobs();
+      return;
+    }
+    if (isPaginationMode) {
+      loadPaginatedPage(currentPage);
+    } else {
+      loadInfiniteInitial();
+    }
+  };
 
   const handleFiltersChange = (newFilters: Filters) => {
     setFilters(newFilters);
@@ -186,13 +317,6 @@ function App() {
     setSearchInput("");
   };
 
-  const handleLoadMore = () => {
-    setInfiniteScrollPage((prev) => prev + 1);
-  };
-
-  const hasMoreInfiniteScroll =
-    infiniteScrollJobs.length < filteredAndSortedJobs.length;
-
   const handleExportCSV = () => {
     exportToCSV(filteredAndSortedJobs);
   };
@@ -237,10 +361,14 @@ function App() {
                 <div className="flex items-center justify-between">
                   <div>
                     <h2 className="text-2xl font-bold text-[#0f172a] dark:text-foreground leading-8">
-                      {filteredAndSortedJobs.length.toLocaleString()} Jobs Found
+                      {isLiveAPI() && isPaginationMode
+                        ? `${serverTotal.toLocaleString()} Jobs Available`
+                        : `${filteredAndSortedJobs.length.toLocaleString()} Jobs Found`}
                     </h2>
                     <p className="text-sm text-[#64748b] mt-1">
-                      Showing the latest tech opportunities
+                      {isLiveAPI() && isPaginationMode
+                        ? `Page ${currentPage} of ${serverTotalPages}`
+                        : "Showing the latest tech opportunities"}
                     </p>
                   </div>
                   <FigmaViewToggle
@@ -249,7 +377,7 @@ function App() {
                     sortOption={sortOption}
                     onSortChange={setSortOption}
                     isPaginationMode={isPaginationMode}
-                    onPaginationModeChange={setIsPaginationMode}
+                    onPaginationModeChange={handlePaginationModeChange}
                   />
                 </div>
 
@@ -288,26 +416,26 @@ function App() {
                       ))}
                     </div>
 
-                    {/* Pagination */}
-                    {filteredAndSortedJobs.length > ITEMS_PER_PAGE && (
-                      <div className="mt-8">
-                        {isPaginationMode ? (
-                          <div className="flex items-center justify-center">
+                    {/* Pagination / Infinite Scroll */}
+                    {isPaginationMode
+                      ? totalPages > 1 && (
+                          <div className="mt-8 flex items-center justify-center">
                             <PaginationControls
                               currentPage={currentPage}
                               totalPages={totalPages}
-                              onPageChange={setCurrentPage}
+                              onPageChange={handlePageChange}
                             />
                           </div>
-                        ) : (
-                          <InfiniteScrollTrigger
-                            onLoadMore={handleLoadMore}
-                            hasMore={hasMoreInfiniteScroll}
-                            isLoading={false}
-                          />
+                        )
+                      : (
+                          <div className="mt-8">
+                            <InfiniteScrollTrigger
+                              onLoadMore={handleLoadMore}
+                              hasMore={hasMoreInfiniteScroll}
+                              isLoading={isLoadingMore}
+                            />
+                          </div>
                         )}
-                      </div>
-                    )}
                   </>
                 )}
               </div>
@@ -324,7 +452,7 @@ function App() {
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
                 <div className="text-center">
-                  <Button onClick={loadJobs} variant="outline">
+                  <Button onClick={handleRetry} variant="outline">
                     Retry
                   </Button>
                 </div>
@@ -337,7 +465,7 @@ function App() {
       {/* Footer */}
       <footer className="border-t mt-12 py-6 bg-white dark:bg-background">
         <div className="container mx-auto px-4 text-center text-sm text-[#64748b]">
-          <p>© 2023 CareerHub Job Discovery Platform. All rights reserved.</p>
+          <p>&copy; 2023 CareerHub Job Discovery Platform. All rights reserved.</p>
         </div>
       </footer>
 

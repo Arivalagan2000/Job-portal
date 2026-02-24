@@ -6,22 +6,16 @@ export interface Job {
   location: string;
   salary_from: number;
   salary_to: number;
-  employment_type: "Full-Time" | "Part-Time" | "Contract" | "Internship";
+  employment_type: string;
   application_deadline: string;
   qualifications: string;
   contact: string;
   job_category: string;
   is_remote_work: number;
+  number_of_opening?: number;
   openings?: number;
   created_at?: string;
-}
-
-export interface PaginatedResponse {
-  data: Job[];
-  total: number;
-  page: number;
-  per_page: number;
-  total_pages: number;
+  updated_at?: string;
 }
 
 export interface Filters {
