@@ -19,4 +19,21 @@ export default defineConfig({
 
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],
+
+  build: {
+    // Generate source maps for easier debugging on Vercel
+    sourcemap: false,
+    // Increase chunk size warning limit (jsPDF is large)
+    chunkSizeWarningLimit: 2000,
+    rollupOptions: {
+      output: {
+        // Split large vendors into separate chunks for better caching
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom'],
+          'pdf-vendor': ['jspdf', 'jspdf-autotable'],
+          'ui-vendor': ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-select'],
+        },
+      },
+    },
+  },
 })
