@@ -465,7 +465,7 @@ function App() {
       {/* Footer */}
       <footer className="border-t mt-12 py-6 bg-white dark:bg-background">
         <div className="container mx-auto px-4 text-center text-sm text-[#64748b]">
-          <p>&copy; 2023 CareerHub Job Discovery Platform. All rights reserved.</p>
+          <p>&copy;</p>
         </div>
       </footer>
 

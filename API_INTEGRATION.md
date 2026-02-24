@@ -2,7 +2,7 @@
 
 ## Overview
 
-This Job Portal application is now integrated with the JSONFakery Jobs API, providing real-time job data from an external source. You can easily switch between mock data (for development/testing) and live API data.
+This Hirro application is now integrated with the JSONFakery Jobs API, providing real-time job data from an external source. You can easily switch between mock data (for development/testing) and live API data.
 
 ## API Configuration
 

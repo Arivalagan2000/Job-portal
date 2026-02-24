@@ -2049,7 +2049,7 @@ function Container101() {
     <div className="relative shrink-0 w-full" data-name="Container">
       <div className="bg-clip-padding border-0 border-[transparent] border-solid content-stretch flex flex-col items-center relative w-full">
         <div className="flex flex-col font-['Inter:Regular',sans-serif] font-normal h-[20px] justify-center leading-[0] not-italic relative shrink-0 text-[#64748b] text-[14px] text-center w-[418.05px]">
-          <p className="leading-[20px] whitespace-pre-wrap">© 2023 CareerHub Job Discovery Platform. All rights reserved.</p>
+          <p className="leading-[20px] whitespace-pre-wrap"></p>
         </div>
       </div>
     </div>

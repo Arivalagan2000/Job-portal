@@ -41,7 +41,7 @@ export function FigmaHeader({
               <Briefcase className="h-5 w-5 text-white" />
             </div>
             <span className="text-lg font-bold text-[#0f172a] dark:text-foreground">
-              Job Portal
+              Hirro
             </span>
           </div>
 
